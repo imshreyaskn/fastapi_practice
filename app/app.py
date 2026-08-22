@@ -1,6 +1,8 @@
 # pyrefly: ignore [missing-import]
+from traitlets import default
 from asyncio import proactor_events
 from fastapi import FastAPI, HTTPException
+from .schemas import ProductCreate
 
 app = FastAPI()
 
@@ -54,3 +56,11 @@ def get_all_products(limit : int = 10, search : str | None = None):
         return all_products[:limit]
 
     return list(products_db.values())[:limit]
+
+
+@app.post("/api/v1/products",status_code=201)
+def create_product(RequestBody : ProductCreate):
+
+    id = max(products_db.keys(),default= 0) +1 
+    products_db[id] = RequestBody.model_dump()
+    return products_db[id]
