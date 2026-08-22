@@ -1,0 +1,151 @@
+# OrderFlow — Backend Engineering Master Project
+
+## Tutor & Learning Guidelines
+1. Tutor Mode: Interactive step-by-step tutoring. Explain the "why" and mechanics first.
+2. Hands-on: The student controls the keyboard, code, and terminal. The agent does NOT modify project code files or run commands without explicit permission.
+3. Method: Build from scratch. No boilerplate dump. Understand every line, inspect SQL/network/memory, deliberately create bugs/bottlenecks (concurrency bugs, N+1, unindexed queries, connection exhaustion), observe failures, and fix them.
+
+---
+
+## High-Level Architecture
+
+```text
+                         CLIENT
+                           │
+                           │ HTTPS
+                           ↓
+                    ┌─────────────┐
+                    │ Load Balancer│
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              ↓            ↓             ↓
+          FastAPI 1    FastAPI 2    FastAPI 3
+              │            │             │
+              └────────────┼─────────────┘
+                           │
+              ┌────────────┼─────────────┐
+              ↓            ↓             ↓
+           Redis       PostgreSQL       Queue
+              │            │             │
+              │            │          Workers
+              │            │             │
+              └────────────┼─────────────┘
+                           │
+                     External APIs
+                           │
+                           ↓
+                     Payment Provider
+
+        ┌─────────────────────────────────┐
+        │          Observability          │
+        │ Logs + Metrics + Traces + Alerts│
+        └─────────────────────────────────┘
+```
+
+---
+
+## Core Domain & Endpoints
+- POST /users
+- GET /users/{id}
+- POST /products
+- GET /products
+- GET /products/{id}
+- POST /orders
+- GET /orders/{id}
+- GET /users/{id}/orders
+- POST /payments
+
+---
+
+## The 15-Phase Roadmap
+
+### Phase 1 — HTTP & FastAPI Fundamentals (No DB)
+- The Anatomy of an HTTP Request (Method, Path, Headers, Query Params, Body, Status Codes)
+- Uvicorn & ASGI lifecycle
+- Path Parameters vs Query Parameters
+- Request Body parsing and data validation with Pydantic
+- Status codes & standard error handling (RFC 7807 / HTTPException)
+- Dependency Injection system in FastAPI
+
+### Phase 2 — Relational Modeling & PostgreSQL
+- Relational schema design: `users`, `products`, `orders`, `order_items`
+- Primary keys, foreign keys, constraints (CHECK, UNIQUE, NOT NULL), relationships
+- SQLAlchemy 2.0 ORM & Core mapping
+- Migrations with Alembic
+
+### Phase 3 — The Order Flow & ACID Transactions
+- Endpoint: `POST /orders`
+- Multi-step business logic:
+  1. Validate user
+  2. Find products & verify stock
+  3. Calculate total
+  4. Create order & order items
+  5. Reduce stock
+- Transaction boundaries: `BEGIN`, `COMMIT`, `ROLLBACK` on failure
+
+### Phase 4 — Intentionally Creating & Fixing the N+1 Problem
+- Endpoint: `GET /users/{user_id}/orders`
+- Bad implementation: looping queries generating N+1 SELECT statements
+- Inspecting raw SQL logs
+- Fixes: `joinedload`, `selectinload`, and explicit batch/JOIN queries
+
+### Phase 5 — Indexes & Query Optimization
+- Populate large volume of dummy orders/products
+- Slow query on unindexed fields (`WHERE user_id = ...`)
+- Running `EXPLAIN ANALYZE` to inspect sequential scan vs index scan
+- Adding B-Tree indexes and composite indexes
+
+### Phase 6 — Concurrency & Race Conditions
+- Attack our own app: simultaneous checkout when `stock = 1`
+- Reproducing overselling (stock dropping to -1 or duplicate sales)
+- Fixes:
+  - Pessimistic Locking (`SELECT ... FOR UPDATE`)
+  - Optimistic Locking (versioning / conditional updates `WHERE stock >= qty`)
+  - DB-level constraints (`CHECK (stock >= 0)`)
+
+### Phase 7 — Connection Pooling
+- How SQLAlchemy manages pool connections (`QueuePool`)
+- Parameters: `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle`
+- Simulating connection exhaustion under load and handling pool starvation
+
+### Phase 8 — Redis & Caching Strategies
+- Endpoint: `GET /products/{id}` with Cache-Aside pattern
+- TTL (Time-To-Live) and cache invalidation strategies on product update/stock change
+- Cache stampede & stale data mitigation
+
+### Phase 9 — Asynchronous Background Jobs
+- FastAPI `BackgroundTasks` vs Dedicated Queues
+- Offloading slow tasks (e.g., email notifications, receipt generation)
+- Worker setup (Redis Queue / Celery / ARQ)
+
+### Phase 10 — Failure Handling & Idempotency
+- External service failures (Payment Gateway simulation)
+- Timeouts, retries, exponential backoff, circuit breakers
+- Idempotency Keys (`Idempotency-Key: <uuid>`) to prevent duplicate charges
+
+### Phase 11 — Observability
+- Structured JSON logging with request correlation IDs
+- Prometheus metrics (latency histograms, request rates, error rates)
+- OpenTelemetry tracing across FastAPI, PostgreSQL, Redis, and external APIs
+
+### Phase 12 — Containerization (Docker & Compose)
+- Multi-stage Dockerfile for FastAPI
+- `docker-compose.yml` linking FastAPI, PostgreSQL, Redis, and Worker
+- Health checks, networking, volume persistence, environment configuration
+
+### Phase 13 — Load & Stress Testing
+- Benchmarking with Locust / k6 / wrk
+- Measuring RPS, p50, p95, p99 latency, error rates under heavy load
+- Comparing bottlenecks: before vs after indexing, before vs after caching
+
+### Phase 14 — Scaling & Production Hardening
+- Horizontal scaling with multiple ASGI worker processes
+- Reverse proxy / Load Balancer (Nginx / Traefik / ALB)
+- Rate limiting and security hardening
+
+### Phase 15 — AWS Cloud Deployment Architecture
+- Container orchestration via AWS ECS (Fargate)
+- Managed Database via Amazon RDS (PostgreSQL)
+- Managed Cache via Amazon ElastiCache (Redis)
+- Application Load Balancer (ALB) + CloudWatch monitoring
