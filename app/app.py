@@ -1,8 +1,9 @@
 # pyrefly: ignore [missing-import]
-from traitlets import default
+
+from app.schemas import ProductUpdate
 from asyncio import proactor_events
 from fastapi import FastAPI, HTTPException
-from .schemas import ProductCreate
+from .schemas import ProductCreate,ProductResponse
 
 app = FastAPI()
 
@@ -38,13 +39,13 @@ def health_check():
 
 
 @app.get("/api/v1/products/{product_id}")
-def get_product_by_id(product_id : int):
+def get_product_by_id(product_id : int) -> ProductResponse:
     if product_id not in products_db:
         raise HTTPException(status_code=404,detail="Product not found")
     return products_db[product_id]
 
 @app.get("/api/v1/products")
-def get_all_products(limit : int = 10, search : str | None = None):
+def get_all_products(limit : int = 10, search : str | None = None) -> list[ProductResponse]:
     all_products = list(products_db.values())
     if search:
         
@@ -59,8 +60,35 @@ def get_all_products(limit : int = 10, search : str | None = None):
 
 
 @app.post("/api/v1/products",status_code=201)
-def create_product(RequestBody : ProductCreate):
+def create_product(RequestBody : ProductCreate) -> ProductResponse:
 
     id = max(products_db.keys(),default= 0) +1 
-    products_db[id] = RequestBody.model_dump()
+    products_db[id] = {"id":id,**RequestBody.model_dump()}
     return products_db[id]
+
+
+@app.put("/api/v1/products/{product_id}") 
+def replace_product_id(product_id : int , RequestBody : ProductCreate) -> ProductCreate:
+    
+    if product_id not in products_db:
+        raise HTTPException(status_code=404,detail="Product not found")
+    products_db[product_id] = {"id":product_id,**RequestBody.model_dump()}
+    return products_db[product_id]
+
+@app.patch("/api/v1/products/{product_id}")
+def update_product_id(product_id : int , RequestBody : ProductUpdate):
+    updated_content = RequestBody.model_dump(exclude_unset=True)
+    if product_id not in products_db:
+        raise HTTPException(status_code=404,detail="Product not found")
+    
+    for item in updated_content:
+        products_db[product_id][item] = updated_content[item]
+
+    return products_db[product_id]
+
+@app.delete("/api/v1/products/{product_id}",status_code=204)
+def delete_product_id(product_id:int):
+    if product_id not in products_db:
+        raise HTTPException(status_code=404,detail="Product not found")
+    del products_db[product_id]
+    return None
